@@ -1,4 +1,4 @@
-# DshOmniFile（dsh-omnifile）— 全文件适配插件
+# DshOmniFile（dsh-omnifile）— 文件适配插件
 
 整合 **dsh-file-upload** / **dsh-plugin-anydoc** / **@anionex/dsh-vision-toolkit** 三个插件的能力为一个通用插件：
 **文件接入（拖拽 / 粘贴 / 点击多选）+ anydoc 文档解析 + 多模态模型识别 + 主模型通用**。
