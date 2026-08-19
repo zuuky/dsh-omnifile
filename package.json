@@ -1,7 +1,7 @@
 {
   "name": "dsh-omnifile",
   "version": "0.1.0",
-  "description": "DSH 全文件适配插件：拖拽/粘贴/点击多选本地文件，anydoc 解析文档，多模态模型识别图片，整合给主模型。",
+  "description": "DSH 文件适配插件：拖拽/粘贴/点击多选本地文件，anydoc 解析文档，多模态模型识别图片，整合给主模型。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
