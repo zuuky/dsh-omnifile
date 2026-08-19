@@ -1,4 +1,4 @@
-# dsh-omnifile — 文件适配插件
+# DshOmniFile（dsh-omnifile）— 全文件适配插件
 
 整合 **dsh-file-upload** / **dsh-plugin-anydoc** / **@anionex/dsh-vision-toolkit** 三个插件的能力为一个通用插件：
 **文件接入（拖拽 / 粘贴 / 点击多选）+ anydoc 文档解析 + 多模态模型识别 + 主模型通用**。
@@ -6,7 +6,7 @@
 ## 功能
 
 1. **文件接入**
-   - 拖拽文件到窗口、在输入框粘贴（支持剪贴板图片/文件）、点击输入框左侧 📎 按钮多选本地文件。
+   - 拖拽文件到窗口、在输入框粘贴（支持剪贴板图片/文件）、点击输入框左侧 上传 按钮多选本地文件。
    - 图片文件走 DSH 原生附件流：输入框上方原生缩略图栏、聊天内图片、点击灯箱预览。
    - 非图片文件（文档/文本/音视频/其他）保存到会话工作区 uploads/，输入框内出现**可见的文件 chip**（文件名），
      输入框上方同时显示文件卡片（图标+文件名+大小+状态）。删除输入框中的 chip 即主动移除该附件。
@@ -22,11 +22,15 @@
      （如纯扫描图像型 PDF → `unsupported`）不再整体报错，而是给出可读的降级说明
      （已保存路径 + 失败原因 + 已提取图片的识别结果）。
 
-3. **多模态模型配置（参考 vision-toolkit 精简版）**
-   - 设置页「文件（Omnifile）」或 settings.yaml 的 omnifile: 小节配置：
-     API 地址、模型名、API Key（credential 引用）、是否启用思考模式（默认禁止）。
-   - 默认值即当前环境的 http://10.218.230.4:8015/v1 + general-model + VISION_API_KEY。
-   - 启用思考模式时请求体追加 reasoning_effort（默认 medium）。
+3. **多模态模型配置**
+   - 设置页「DshOmniFile」（设置左侧导航 → DshOmniFile）或 settings.yaml 的 omnifile: 小节配置。
+   - **只从「设置-模型」选择多模态模型（唯一配置来源）**：设置页下拉列出「设置-模型」里所有支持 image 输入的
+     提供商/模型，选中后保存**唯一引用 providerRef**（<命名空间>/<提供商>/<模型id>），不在此保存多份模型配置，
+     也没有手动备用方案；实际 API 地址 / API Key / 模型信息全部以「设置-模型」为准。可「刷新列表」或前往
+     「设置-模型」管理模型（当前 DSH 未开放插件小节直跳接口，按钮会给出导航提示）。
+   - **常规模型参数**：采样温度 temperature（0-2，默认 0.7）、top_p（0-1，默认 1）、最大输出 token（默认 8192）、
+     多模态并发数（默认 1）、是否启用思考模式（默认禁止；开启时发送 reasoning_effort，默认 medium）。
+   - 设置面板已按 DSH theme 重排：明暗主题 / 主题色切换时自动适配（全部使用 --dsw-alias-* / --dsw-specific-* 令牌）。
 
 4. **发送到主模型**
    - 非图片文件发送时，插件自动调用 /api/omnifile/process 解析，把 Markdown / 图片描述 /
@@ -61,11 +65,8 @@
 ## 配置（settings.yaml 示例）
 
     omnifile:
-      provider:
-        baseUrl: http://10.218.230.4:8015/v1
-        credential: VISION_API_KEY
-        model: general-model
-        reasoningEffort: medium   # 启用思考模式时发送的 reasoning_effort
+      providerRef: llm-pi-ai/vision/general-model   # 「设置-模型」中选择的多模态模型唯一引用
+      reasoningEffort: medium     # 启用思考模式时发送的 reasoning_effort
       thinking: false             # 默认禁止思考模式
       enableVariants: true        # 为文本-only 主模型注册 omnifile-* 变体
       timeoutMs: 60000
@@ -73,6 +74,9 @@
       maxDocImages: 8             # 每个文档最多识别的内嵌图片数
       docMaxChars: 120000         # 文档 Markdown 截断上限
       concurrency: 1              # 多模态并发（默认 1，可在设置页调整）
+      temperature: 0.7            # 采样温度（0-2，默认 0.7）
+      topP: 1                     # nucleus 采样 top_p（0-1，默认 1）
+      maxTokens: 8192             # 单次输出最大 token 数（默认 8192）
 
 ## Host 端路由
 
@@ -85,6 +89,7 @@
 | POST /api/omnifile/open | 用本地默认程序打开文件（预览） |
 | GET  /api/omnifile/file | 会话内文件预览/缩略图（路径校验在会话工作区内） |
 | GET  /api/omnifile/parsed | 按源文件保存路径返回解析结果全文（折叠卡片懒加载用，命名规则在服务端推导） |
+| GET  /api/omnifile/models | 枚举「设置-模型」里已配置且支持 image 输入的提供商/模型（设置页下拉点选用） |
 
 ## 注意事项
 
