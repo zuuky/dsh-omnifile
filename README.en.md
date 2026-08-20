@@ -24,13 +24,17 @@
 
 ## Installation
 
-1. Put the `dsh-omnifile` plugin folder into the web profile's node_modules:
-   `C:\Users\<you>\.dsh\profiles\web\node_modules\dsh-omnifile`
-   (it contains `lib/`, `cordis.patch.yml`, `package.json`, etc.).
-2. Add `"dsh-omnifile"` to `dsh.profile.bundles` in the web profile's `package.json`.
-3. Add an `omnifile:` section to `$DSH_HOME/settings.yaml` (see "Configuration"); if you use a
-   text-only main model, also point `agent-default-model.provider` at an `omnifile-*` variant.
-4. **Restart DSH Desktop** (or dsh web) to load the new bundle.
+Install with the DSH plugin command (it pulls the GitHub repo, installs it, and enables this plugin's bundle automatically):
+
+```bash
+dsh plugin --profile web add github:zuuky/dsh-omnifile
+```
+
+After installing:
+
+1. Add an `omnifile:` section to `$DSH_HOME/settings.yaml` (see "Configuration"); if you use a
+   text-only main model, also point `agent-default-model.provider` at an `omnifile-*` variant (skip for multimodal main models).
+2. **Restart DSH Desktop** (or dsh web) to load the plugin.
 
 ## Configuration (settings.yaml example)
 

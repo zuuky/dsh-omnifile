@@ -24,13 +24,17 @@
 
 ## 安装
 
-1. 将插件目录 `dsh-omnifile` 放入 web profile 的 node_modules：
-   `C:\Users\<you>\.dsh\profiles\web\node_modules\dsh-omnifile`
-   （目录内含 `lib/`、`cordis.patch.yml`、`package.json` 等文件）。
-2. 在 web profile 的 `package.json` → `dsh.profile.bundles` 中加入 `"dsh-omnifile"`。
-3. 在 `$DSH_HOME/settings.yaml` 新增 `omnifile:` 小节（见「配置」）；如使用文本-only 主模型，
-   再把 `agent-default-model.provider` 指到 `omnifile-*` 变体。
-4. **重启 DSH Desktop**（或 dsh web），加载新 bundle 后即可使用。
+用 DSH 的插件命令直接安装（会自动拉取 GitHub 仓库、安装并启用本插件的 bundle）：
+
+```bash
+dsh plugin --profile web add github:zuuky/dsh-omnifile
+```
+
+安装后：
+
+1. 在 `$DSH_HOME/settings.yaml` 新增 `omnifile:` 小节（见「配置」）；如使用文本-only 主模型，
+   再把 `agent-default-model.provider` 指到 `omnifile-*` 变体（多模态主模型可跳过）。
+2. **重启 DSH Desktop**（或 dsh web），加载插件后即可使用。
 
 ## 配置（settings.yaml 示例）
 
