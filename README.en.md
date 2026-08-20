@@ -24,12 +24,13 @@
 
 ## Installation
 
-The plugin lives in the web profile's node_modules (for dependency resolution); `D:\deepseek\dsh-omnifile` is a junction to it.
-
-1. Ensure `C:\Users\<you>\.dsh\profiles\web\node_modules\dsh-omnifile` contains all plugin files (`lib/` + `cordis.patch.yml` + `package.json`).
-2. Ensure `"dsh-omnifile"` is listed in `dsh.profile.bundles` of the web profile's `package.json` (`cordis.patch.yml` inserts the `omnifile` entry automatically).
-3. Add an `omnifile:` section to `$DSH_HOME/settings.yaml` (below), and optionally point `agent-default-model.provider` at an `omnifile-*` variant if you use a text-only main model.
-4. **Restart DSH Desktop** (or dsh web) to load the new bundle; client changes hot-reload via HMR, host changes need a restart.
+1. Put the `dsh-omnifile` plugin folder into the web profile's node_modules:
+   `C:\Users\<you>\.dsh\profiles\web\node_modules\dsh-omnifile`
+   (it contains `lib/`, `cordis.patch.yml`, `package.json`, etc.).
+2. Add `"dsh-omnifile"` to `dsh.profile.bundles` in the web profile's `package.json`.
+3. Add an `omnifile:` section to `$DSH_HOME/settings.yaml` (see "Configuration"); if you use a
+   text-only main model, also point `agent-default-model.provider` at an `omnifile-*` variant.
+4. **Restart DSH Desktop** (or dsh web) to load the new bundle.
 
 ## Configuration (settings.yaml example)
 

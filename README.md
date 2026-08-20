@@ -24,12 +24,13 @@
 
 ## 安装
 
-插件目录放在 web profile 的 node_modules（保证依赖解析）；`D:\deepseek\dsh-omnifile` 是指向它的 junction。
-
-1. 确认 `C:\Users\<you>\.dsh\profiles\web\node_modules\dsh-omnifile` 包含插件全部文件（`lib/` + `cordis.patch.yml` + `package.json`）。
-2. 确认 web profile 的 `package.json` → `dsh.profile.bundles` 已加入 `"dsh-omnifile"`（`cordis.patch.yml` 会自动插入 `omnifile` 行）。
-3. 在 `$DSH_HOME/settings.yaml` 新增 `omnifile:` 小节（见下），并（如使用文本-only 主模型）把 `agent-default-model.provider` 指到 `omnifile-*` 变体。
-4. **重启 DSH Desktop**（或 dsh web）加载新 bundle；客户端改动可由 HMR 即时生效，宿主端改动需重启。
+1. 将插件目录 `dsh-omnifile` 放入 web profile 的 node_modules：
+   `C:\Users\<you>\.dsh\profiles\web\node_modules\dsh-omnifile`
+   （目录内含 `lib/`、`cordis.patch.yml`、`package.json` 等文件）。
+2. 在 web profile 的 `package.json` → `dsh.profile.bundles` 中加入 `"dsh-omnifile"`。
+3. 在 `$DSH_HOME/settings.yaml` 新增 `omnifile:` 小节（见「配置」）；如使用文本-only 主模型，
+   再把 `agent-default-model.provider` 指到 `omnifile-*` 变体。
+4. **重启 DSH Desktop**（或 dsh web），加载新 bundle 后即可使用。
 
 ## 配置（settings.yaml 示例）
 
