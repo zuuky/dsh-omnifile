@@ -75,12 +75,21 @@ omnifile:
 
 ## 开发（TypeScript + Vite）
 
-源码在 src/（TypeScript），由 Vite 构建三个目标到 lib/（保持既有 main/exports/部署路径不变）：
+源码在 src/（TypeScript），按功能模块化组织，由 Vite 构建三个目标到 lib/（保持既有 main/exports/部署路径不变）：
 
 ```text
-src/common.ts  → lib/common.js   （双端共用常量/工具，ESM 零依赖；宿主 /api/omnifile/common.js 路由原样返回）
-src/index.ts   → lib/index.js    （宿主端，Node ESM，所有依赖外部化）
-src/client.ts  → lib/client.js   （客户端，DSH ModuleLoader 单文件 bundle：react / dsh-client-runtime 外部化）
+src/common/ → lib/common.js   （双端共用常量/标记/工具，ESM 零依赖；宿主 /api/omnifile/common.js 路由原样返回）
+  constants.ts  markers.ts  util.ts  index.ts(barrel)
+src/host/   → lib/index.js    （宿主端，Node ESM，所有外部依赖外部化，common 内联）
+  index.ts(入口/apply)  config.ts(设置schema与限额)  extensions.ts(文件分类)
+  logger.ts  paths.ts(路径/工作目录)  http.ts(请求/响应/凭据)  limiter.ts  progress.ts
+  text.ts(编码/二进制检测/纯文本)  models.ts(模型枚举/解析)  describe.ts(多模态识图+缓存)
+  anydoc.ts(文档解析+PDF兜底)  variants.ts(文本模型变体)  workspace.ts(@文件列表)
+  routes.ts(全部 /api 路由)  tool.ts(dshomnifile 工具)
+src/client/ → lib/client.js   （客户端，DSH ModuleLoader 单文件 bundle：react / dsh-client-runtime 外部化）
+  index.ts(apply入口)  styles.ts(CSS)  constants.ts(文案/限额)  util.ts(通用工具)
+  parse.ts(消息标记解析)  controller.ts(核心控制器)  components.ts(React 组件)
+  chat.ts(聊天卡片定义)  dom.ts(拖拽/粘贴/marker隐藏)  source.ts(@文件源注册)
 ```
 
 依赖 vite + typescript（devDependencies）。
@@ -88,16 +97,18 @@ src/client.ts  → lib/client.js   （客户端，DSH ModuleLoader 单文件 bun
 ```bash
 pnpm install       # 安装依赖（含构建工具链）
 pnpm build         # 构建全部三个目标 → lib/
+pnpm build:watch   # 监视 src 增量重建（三个 vite 进程并行）
 pnpm typecheck     # tsc --noEmit 类型检查
 pnpm test          # 回归测试（node --test，读取 lib/ 构建产物）
 ```
 
 - 客户端 bundle 由 scripts/build.mjs + vite.client.config.mts 产出，构建时通过自定义
   Vite 插件的 generateBundle hook 包进 DSH 的 window.__ModuleLoader__.load({ id, factory }) 格式；
-- common.ts 构建期内联进客户端 bundle（与宿主同一份 TS 源码，单源）；/api/omnifile/common.js
+- common 构建期内联进宿主/客户端 bundle（与两端同一份 TS 源码，单源）；/api/omnifile/common.js
   路由保留用于向后兼容旧客户端 bundle。
-- 构建同时生成 lib/index.d.ts / lib/common.d.ts（tsconfig.build.json 声明输出）。
-- 回归测试覆盖：CSS 断言、lastUserQuestion、chips 渲染/发送流程，以及二进制检测
+- 构建同时生成 lib/host/*.d.ts 与 lib/common/*.d.ts（tsconfig.build.json 声明输出，
+  package.json types/exports 指向 lib/host/index.d.ts）。
+- 回归测试覆盖：CSS 断言、lastUserQuestion、chips 渲染/发送流程、模型枚举，以及二进制检测
   （UTF-8/GBK/UTF-16（含无 BOM）/UTF-32 中文与英文文本不误判、真实二进制不放过）
   与文件 chip 置顶插入（无论输入框有无文字，chip 始终在正文之前）。
 

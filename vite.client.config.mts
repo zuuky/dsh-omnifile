@@ -10,7 +10,7 @@ export default defineConfig({
         target: 'es2022',
         outDir: 'lib',
         lib: {
-            entry: root + '/src/client.ts',
+            entry: root + '/src/client/index.ts',
             formats: ['cjs'],
             fileName: () => 'client.js',
         },

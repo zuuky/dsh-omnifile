@@ -9,12 +9,13 @@ export default defineConfig({
         target: 'node18',
         outDir: 'lib',
         lib: {
-            entry: root + '/src/index.ts',
+            entry: root + '/src/host/index.ts',
             formats: ['es'],
             fileName: () => 'index.js',
         },
         rollupOptions: {
-            external: (id: string) => HOST_EXTERNAL.includes(id) || id === './common.js',
+            /* 宿主依赖外部化；common 模块（src/common）由构建期内联，lib/common.js 仍单独构建供旧客户端 */
+            external: (id: string) => HOST_EXTERNAL.includes(id),
             output: {
                 preserveModules: false,
             },
