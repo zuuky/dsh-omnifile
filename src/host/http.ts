@@ -50,7 +50,9 @@ async function resolveApiKey(ctx: any, credential: string): Promise<string> {
     try {
         const ref = credentialRef(String(credential || '').trim())
         const resolved = await ctx.credentials.resolve(ref)
-        const key = resolved?.key
+        /* 凭据服务 resolve() 返回 { value: string, source }，字段名是 value 而非 key；
+         * 读 key 会恒为 undefined → 空串 → 不发送 Authorization 头 → 端点回 401。 */
+        const key = resolved?.value
         return typeof key === 'string' ? key : ''
     } catch {
         return ''

@@ -125,12 +125,14 @@ class OmnifileVariantAdapter extends LlmAdapter {
             }
             signal?.throwIfAborted()
             const replacement = await limit(async () => {
+                let evidencePath = ''
                 try {
                     const attachment = this.ctx.get('attachments')
                     const cwd = typeof sessionId === 'string' && sessionId !== ''
                         ? this.ctx.sessions.get(sessionId)?.header?.cwd
                         : undefined
                     const pathEvidence = await this.materializeAsEvidence(block, attachment, cwd)
+                    evidencePath = pathEvidence.path
                     // 内容哈希缓存：对话历史里同一附件每轮都会被转换，缓存命中后不再重复调用多模态模型
                     const basePrompt = cfg.describePrompt || DEFAULT_DESCRIBE_PROMPT
                     const questionText = typeof question === 'string' ? question.trim().slice(0, 600) : ''
@@ -144,7 +146,9 @@ class OmnifileVariantAdapter extends LlmAdapter {
                         text: '图片绝对路径: ' + JSON.stringify(pathEvidence.path) + '\n多模态模型描述： ' + description,
                     }
                 } catch (error) {
-                    return { type: 'text', text: '[dshomnifile 不可用] ' + messageOf(error).slice(0, 300) }
+                    /* 识图失败也要把已落盘的图片绝对路径传给模型，否则模型无法 read_image 回看原图。 */
+                    const pathTail = evidencePath !== '' ? '（图片路径: ' + evidencePath + '）' : ''
+                    return { type: 'text', text: '[dshomnifile 不可用] ' + messageOf(error).slice(0, 300) + pathTail }
                 }
             })
             result.push(replacement)
