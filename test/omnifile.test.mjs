@@ -64,7 +64,7 @@ function bootClient(overrides = {}) {
   const slotsStub = { register(opts, Component) { registered[opts.name] = { opts, Component }; return {}; }, inject(name, factory) { const c2 = { slots: slotsStub }; factory.call(c2); } };
   const ctx = { effect(fn) { return typeof fn === 'function' ? fn() : undefined; }, slots: slotsStub, inject() {}, get: (k) => { if (k === 'sessions') return { scope: () => ({}) }; if (k === 'conversation') return { input: { for: () => fakeInput } }; return undefined; }, ...(overrides.ctx || {}) };
   const fetchStub = overrides.fetch || (() => Promise.resolve({ json: async () => ({ ok: false }) }));
-  const sandbox = { window, document, MutationObserver, NodeFilter: { SHOW_TEXT: 4 }, console, Promise, Set, Map, Array, Object, String, Date, Math, JSON, RegExp, Number, encodeURIComponent, Symbol, Error, Uint8Array, FileReader: class {}, fetch: fetchStub, setInterval, clearInterval, setTimeout, clearTimeout };
+  const sandbox = { window, document, MutationObserver, NodeFilter: { SHOW_TEXT: 4 }, console, Promise, Set, Map, Array, Object, String, Date, Math, JSON, RegExp, Number, encodeURIComponent, Symbol, Error, Uint8Array, FileReader: class {}, fetch: fetchStub, setInterval, clearInterval, setTimeout, clearTimeout, ...(overrides.sandbox || {}) };
   vm.runInNewContext(clientSrc, sandbox, { filename: 'client.js' });
   const ex = window.__EX__; ex.apply(ctx);
   const { controller } = registered['conversation.input.dock'].opts.inject('s1');
@@ -309,3 +309,383 @@ test('发送提交后清理由“请勿重复点击”残留的提示', async ()
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(b.noticeValue, null, '发送提交后提示被清理');
 });
+
+/* ============ 10. 二进制检测修复（#2）：文本不误判、二进制不放过 ============ */
+/** 提取 decodeText/isBinaryish 及其依赖的辅助函数（countReplacement/decodeWith/utf32Decode/tryUtf16NoBom），一并 eval 供用例调用。 */
+function loadTextUtils() {
+  const anchors = ['function countReplacement', 'function decodeWith', 'function utf32Decode',
+    'function tryUtf16NoBom', 'function decodeText', 'function isBinaryish'];
+  let scope = '(function(){';
+  for (const anchor of anchors) {
+    const fn = extractFn(indexSrc, anchor);
+    assert.ok(fn, '可提取 ' + anchor);
+    scope += '\n' + fn;
+  }
+  scope += '\nreturn { decodeText, isBinaryish };\n})';
+  /* eval 函数表达式取其返回值；直接 eval let/var 声明语句的完成值是 undefined */
+  const factory = eval('(' + scope + ')');
+  return factory();
+}
+
+test('二进制检测：中文 UTF-8 / GBK / UTF-16 文本不再被误判为二进制', () => {
+  const { decodeText, isBinaryish } = loadTextUtils();
+  /* UTF-8 中文（旧逻辑会因连续字节落在 0x80-0x9F 被误判） */
+  const utf8 = Buffer.from('这是一个中文字符串测试，包含标点符号！Hello 123。', 'utf8');
+  assert.equal(isBinaryish(utf8, decodeText(utf8)), false, 'UTF-8 中文不判二进制');
+  /* GBK 中文 */
+  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0xce, 0xc4, 0xbc, 0xfe, 0xc4, 0xda, 0xc8, 0xdd, 0xb2, 0xe2, 0xca, 0xd4, 0xa3, 0xac, 0xba, 0xac, 0xb1, 0xea, 0xb5, 0xe3, 0xb7, 0xfb, 0xba, 0xc5, 0xa3, 0xa1, 0x31, 0x32, 0x33, 0x41, 0x42, 0x43]);
+  assert.ok(new TextDecoder('gb18030').decode(gbk).includes('中文文件内容测试'), 'GBK 样本可解');
+  assert.equal(isBinaryish(gbk, decodeText(gbk)), false, 'GBK 中文不判二进制');
+  /* UTF-16 LE（Windows 记事本「Unicode」）：BOM FF FE */
+  const utf16le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('Unicode 中文文本测试 file.', 'utf16le')]);
+  assert.ok(decodeText(utf16le).includes('Unicode 中文文本测试'), 'UTF-16 LE 解码成功');
+  assert.equal(isBinaryish(utf16le, decodeText(utf16le)), false, 'UTF-16 LE 文本不判二进制');
+  /* UTF-16 BE：BOM FE FF */
+  const beBody = [];
+  for (const c of 'Unicode BE test 文本。') { const n = c.codePointAt(0); beBody.push(n >> 8, n & 0xff); }
+  const utf16be = Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(beBody)]);
+  assert.ok(decodeText(utf16be).includes('Unicode BE test'), 'UTF-16 BE 解码成功');
+  assert.equal(isBinaryish(utf16be, decodeText(utf16be)), false, 'UTF-16 BE 文本不判二进制');
+  /* 纯 ASCII 文本 */
+  assert.equal(isBinaryish(Buffer.from('pure ascii text 12345', 'ascii'), decodeText(Buffer.from('pure ascii text 12345', 'ascii'))), false, '纯 ASCII 不判二进制');
+  /* 单个 NUL 不再一票否决（打磨/填充数据） */
+  const withNul = Buffer.concat([Buffer.from('hello world', 'ascii'), Buffer.from([0x00]), Buffer.from(' tail', 'ascii')]);
+  assert.equal(isBinaryish(withNul, decodeText(withNul)), false, '单个 NUL 不判二进制');
+});
+
+test('二进制检测：#2 修复——无 BOM 的 UTF-16 文本不再误判为二进制', () => {
+  const { decodeText, isBinaryish } = loadTextUtils();
+  /* UTF-16 LE 无 BOM（英文/数字为主）：旧/现逻辑会把每两个字符出现一次的 NUL 当控制字符 → 误判二进制 */
+  const en = 'Hello world, this is a UTF-16LE file without BOM. Line 2 here. Numbers 12345.';
+  const utf16leNoBom = Buffer.from(en, 'utf16le');
+  const dec1 = decodeText(utf16leNoBom);
+  assert.equal(dec1, en, 'UTF-16LE 无 BOM 正确解码');
+  assert.equal(isBinaryish(utf16leNoBom, dec1), false, 'UTF-16LE 无 BOM 不判二进制');
+
+  /* UTF-16 BE 无 BOM */
+  const beText = 'UTF-16BE no BOM sample text 2024';
+  const beNoBom = [];
+  for (const c of beText) { const n = c.codePointAt(0); beNoBom.push(n >> 8, n & 0xff); }
+  const utf16beNoBom = Buffer.from(beNoBom);
+  const dec2 = decodeText(utf16beNoBom);
+  assert.equal(dec2, beText, 'UTF-16BE 无 BOM 正确解码');
+  assert.equal(isBinaryish(utf16beNoBom, dec2), false, 'UTF-16BE 无 BOM 不判二进制');
+});
+
+test('二进制检测：UTF-32 BOM 文本正确解码且不判二进制', () => {
+  const { decodeText, isBinaryish } = loadTextUtils();
+  const utf32leText = 'Test UTF-32 文本 sample。';
+  const leBytes = [];
+  for (const c of utf32leText) { const n = c.codePointAt(0); leBytes.push(n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff); }
+  const utf32le = Buffer.concat([Buffer.from([0xff, 0xfe, 0x00, 0x00]), Buffer.from(leBytes)]);
+  assert.ok(decodeText(utf32le).includes('Test UTF-32'), 'UTF-32LE BOM 解码成功');
+  assert.equal(isBinaryish(utf32le, decodeText(utf32le)), false, 'UTF-32LE BOM 不判二进制');
+
+  const be32 = [];
+  for (const c of 'UTF32BE sample') { const n = c.codePointAt(0); be32.push((n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff); }
+  const utf32be = Buffer.concat([Buffer.from([0x00, 0x00, 0xfe, 0xff]), Buffer.from(be32)]);
+  assert.ok(decodeText(utf32be).includes('UTF32BE'), 'UTF-32BE BOM 解码成功');
+  assert.equal(isBinaryish(utf32be, decodeText(utf32be)), false, 'UTF-32BE BOM 不判二进制');
+});
+
+test('二进制检测：真实二进制仍被正确识别', () => {
+  const { decodeText, isBinaryish } = loadTextUtils();
+  /* 随机字节（含控制/替换字符） */
+  const rand = Buffer.alloc(1024);
+  for (let i = 0; i < 1024; i++) rand[i] = (i * 37 + 11) % 256;
+  assert.equal(isBinaryish(rand, decodeText(rand)), true, '随机字节判二进制');
+  /* PNG 签名文件 */
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52]),
+    Buffer.from([0x08, 0x06, 0x00]),
+  ]);
+  assert.equal(isBinaryish(png, decodeText(png)), true, 'PNG 判二进制');
+  /* 全零填充 */
+  assert.equal(isBinaryish(Buffer.alloc(2048, 0), decodeText(Buffer.alloc(2048, 0))), true, '全零判二进制');
+  /* 空文件 */
+  assert.equal(isBinaryish(Buffer.alloc(0), decodeText(Buffer.alloc(0))), false, '空文件不算二进制');
+});
+
+/* ============ 11. 文件 chip 置顶（#3）：无论输入框有无文字，chip 都在最前 ============ */
+test('chip 位置：frontInsertSpan 始终返回正文之前的位置', () => {
+  const b = bootClient();
+  /* 输入框已有正文、无 chip → 插到最前（start=0） */
+  const s1 = b.controller.frontInsertSpan({ state: { getSnapshot: () => ({ occurrences: [], draft: '你好 world', draftRev: 1 }) } });
+  assert.equal(s1.start, 0, '无 chip 时插到正文最前');
+  /* 已有 chip @0 + 正文（"￼ hello"）→ 紧跟 chip 之后、正文之前 */
+  const s2 = b.controller.frontInsertSpan({ state: { getSnapshot: () => ({ occurrences: [{ source: '文件', offset: 0 }], draft: '￼ hello', draftRev: 2 }) } });
+  assert.equal(s2.start, 2, '已有 chip 时紧跟其后再插（正文之前）');
+  /* 多个 chip（"￼ ￼ hello"）→ 紧跟最后一个 chip */
+  const s3 = b.controller.frontInsertSpan({ state: { getSnapshot: () => ({ occurrences: [{ source: '文件', offset: 0 }, { source: '文件', offset: 2 }], draft: '￼ ￼ hello', draftRev: 3 }) } });
+  assert.equal(s3.start, 4, '紧跟最后一个 chip 之后');
+  /* 其它来源（非本插件）不参与：仍插最前 */
+  const s4 = b.controller.frontInsertSpan({ state: { getSnapshot: () => ({ occurrences: [{ source: '其它', offset: 0 }], draft: '￼ hello', draftRev: 4 }) } });
+  assert.equal(s4.start, 0, '只看本插件 chip');
+});
+
+test('chip 位置：addNonImage 在输入框已有文字时调用 insertReference 于最前位置', async () => {
+  const calls = [];
+  const b = bootClient({
+    sandbox: {
+      FileReader: class {
+        onerror = null;
+        onload = null;
+        readAsDataURL(file) {
+          /* 模拟 readAsDataURL：'x' → data:application/octet-stream;base64,eA== */
+          if (this.onload) this.onload({ target: { result: 'data:application/octet-stream;base64,' + Buffer.from('x').toString('base64') } });
+          else this.onerror({ message: 'no onload' });
+        }
+      },
+    },
+    fetch: (url) => {
+      const u = String(url || '');
+      if (u.indexOf('/api/omnifile/config') >= 0) return Promise.resolve({ json: async () => ({ ok: true, limits: { maxFileBytes: 52428800, maxBatchImages: 20, progressPollMs: 40 } }) });
+      if (u.indexOf('/api/omnifile/save') >= 0) return Promise.resolve({ json: async () => ({ ok: true, path: 'C:/u/1.save', kind: 'doc', size: 12 }) });
+      if (u.indexOf('/api/omnifile/process') >= 0) return Promise.resolve({ json: async () => ({ ok: true, kind: 'doc', parsedPath: 'C:/u/1.md' }) });
+      if (u.indexOf('/api/omnifile/status') >= 0) return Promise.resolve({ json: async () => ({ ok: true, progress: null }) });
+      return Promise.resolve({ json: async () => ({ ok: false }) });
+    },
+  });
+  let snap = { occurrences: [{ ref: 'old', source: '文件', occurrenceId: 'o0', offset: 0 }], draft: '￼ 已有正文', draftRev: 9, phase: 'plain' };
+  const customInput = {
+    notify() {},
+    notices: { set() {} },
+    state: { getSnapshot: () => snap },
+    insertReference(ref, span) {
+      calls.push({ ref: ref.ref, start: span.start, end: span.end });
+      snap = { ...snap, draft: '￼ ￼ 已有正文', draftRev: snap.draftRev + 1, occurrences: [...snap.occurrences, { ref: ref.ref, source: '文件', occurrenceId: 'o' + snap.occurrences.length, offset: span.start }] };
+      return true;
+    },
+    addImages() {},
+  };
+  b.controller.ctx.get = (k) => {
+    if (k === 'conversation') return { input: { for: () => customInput } };
+    if (k === 'sessions') return { scope: () => ({}) };
+    return undefined;
+  };
+  await b.controller.addNonImage('s1', customInput, new File(['x'], '报告.txt', { type: 'text/plain' }));
+  assert.equal(calls.length, 1, 'insertReference 被调用一次');
+  /* 已有 chip @0（offset=0），正文从第 2 字符开始 → 新 chip 插在 offset=2（紧跟 chip、正文之前） */
+  assert.equal(calls[0].start, 2, '输入框已有文字时 chip 插到最前（正文之前）');
+});
+
+test('chip 位置：输入框只有文字（无 chip）时上传 → insertReference 于 start=0（最前）', async () => {
+  const calls = [];
+  const b = bootClient({
+    sandbox: {
+      FileReader: class {
+        onerror = null;
+        onload = null;
+        readAsDataURL() { if (this.onload) this.onload({ target: { result: 'data:application/octet-stream;base64,eA==' } }); else this.onerror({ message: 'no onload' }); }
+      },
+    },
+    fetch: (url) => {
+      const u = String(url || '');
+      if (u.indexOf('/api/omnifile/config') >= 0) return Promise.resolve({ json: async () => ({ ok: true, limits: { maxFileBytes: 52428800, maxBatchImages: 20, progressPollMs: 40 } }) });
+      if (u.indexOf('/api/omnifile/save') >= 0) return Promise.resolve({ json: async () => ({ ok: true, path: 'C:/u/9.save', kind: 'text', size: 5 }) });
+      if (u.indexOf('/api/omnifile/process') >= 0) return Promise.resolve({ json: async () => ({ ok: true, kind: 'text', parsedPath: 'C:/u/9.md' }) });
+      if (u.indexOf('/api/omnifile/status') >= 0) return Promise.resolve({ json: async () => ({ ok: true, progress: null }) });
+      return Promise.resolve({ json: async () => ({ ok: false }) });
+    },
+  });
+  let snap = { occurrences: [], draft: '我已经输入了一些文字内容', draftRev: 3, phase: 'plain' };
+  const customInput = {
+    notify() {},
+    notices: { set() {} },
+    state: { getSnapshot: () => snap },
+    insertReference(ref, span) {
+      calls.push({ ref: ref.ref, start: span.start, end: span.end, draftRev: span.draftRev });
+      snap = { ...snap, draft: '￼ ' + snap.draft, draftRev: snap.draftRev + 1, occurrences: [{ ref: ref.ref, source: '文件', occurrenceId: 'o1', offset: span.start }] };
+      return true;
+    },
+    addImages() {},
+  };
+  b.controller.ctx.get = (k) => {
+    if (k === 'conversation') return { input: { for: () => customInput } };
+    if (k === 'sessions') return { scope: () => ({}) };
+    return undefined;
+  };
+  await b.controller.addNonImage('s1', customInput, new File(['y'], '说明.txt', { type: 'text/plain' }));
+  assert.equal(calls.length, 1, 'insertReference 被调用一次');
+  assert.equal(calls[0].start, 0, '输入框只有文字时 chip 插到最前（start=0）');
+  assert.equal(calls[0].end, 0, 'end=start');
+  assert.equal(calls[0].draftRev, 3, '使用读取时的 draftRev 做 CAS');
+});
+
+/* ============ 12. 多模态模型枚举（#4）：全面列出已注册 provider 的模型（含 DSH 内置 DeepSeek） ============ */
+/** 提取宿主模型枚举/解析相关函数（enumerateModels、resolveConfiguredProvider、builtinProviderDefaults 及视觉推断依赖）。 */
+function loadModelUtils() {
+  const anchors = ['const VISION_HINT_RE', 'function builtinProviderDefaults', 'function inferModelImage',
+    'async function enumerateModels', 'async function resolveConfiguredProvider'];
+  let scope = '(function(){';
+  for (const anchor of anchors) {
+    let fn = extractFn(indexSrc, anchor);
+    if (fn === null) {
+      /* 常量声明（const VISION_HINT_RE = ...;）用行提取 */
+      const lineStart = indexSrc.indexOf(anchor);
+      if (lineStart >= 0) {
+        const semi = indexSrc.indexOf(';', lineStart);
+        if (semi > lineStart) fn = indexSrc.slice(lineStart, semi + 1);
+      }
+    }
+    assert.ok(fn, '可提取 ' + anchor);
+    scope += '\n' + fn;
+  }
+  scope += '\nreturn { builtinProviderDefaults, inferModelImage, enumerateModels, resolveConfiguredProvider };\n})';
+  return eval('(' + scope + ')')();
+}
+
+/** 构造极简 fake ctx：settings.get 按 namespace 返回配置，llm 提供 provider 与模型目录。 */
+function makeModelCtx({ settings, llm }) {
+  const settingsMap = settings || {};
+  const providerModels = llm?.providerModels || {};
+  const providers = llm?.providers || [];
+  const directory = llm?.directory || [];
+  return {
+    settings: {
+      get: (ns) => settingsMap[ns],
+    },
+    get: (k) => {
+      if (k !== 'llm') return undefined;
+      return {
+        listConfigurableProviders: () => directory,
+        listProviders: () => providers,
+        listModels: async (provider) => providerModels[provider] || [],
+      };
+    },
+  };
+}
+
+test('模型枚举：全面列出已注册 provider 的模型（DSH 内置 DeepSeek + 自定义 pi-ai，含 image 标注）', async () => {
+  const { enumerateModels } = loadModelUtils();
+  const ctx = makeModelCtx({
+    settings: {
+      'llm-deepseek': {
+        models: [
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 1000000 },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 1000000 },
+          { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Vision', contextWindow: 1000000 },
+        ],
+      },
+      'llm-pi-ai': {
+        providers: {
+          vllm: { displayName: 'local-ds-v4', apiKeyEnv: 'VLLM_API_KEY', baseURL: 'http://a/v1', defaultInput: ['text'], models: [{ id: 'general-model', name: 'local-ds-v4' }] },
+          vision: { displayName: 'local-vision', apiKeyEnv: 'VISION_API_KEY', baseURL: 'http://b/v1', defaultInput: ['text', 'image'], models: [{ id: 'general-model', name: 'local-vision' }] },
+        },
+      },
+    },
+    llm: {
+      directory: [
+        { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+        { provider: 'vllm', displayName: 'local-ds-v4', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'vllm'] },
+        { provider: 'vision', displayName: 'local-vision', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'vision'] },
+      ],
+      providers: [
+        { id: 'deepseek-official', name: 'DeepSeek' },
+        { id: 'vllm', name: 'local-ds-v4' },
+        { id: 'vision', name: 'local-vision' },
+        { id: 'omnifile-vllm', name: 'local-ds-v4 (Omnifile)' }, /* 本插件变体，应被跳过 */
+      ],
+      providerModels: {
+        'deepseek-official': [
+          { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: ['text'] },
+          { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+          { provider: 'deepseek-official', id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Vision', inputModalities: ['text'] },
+        ],
+        vllm: [{ provider: 'vllm', id: 'general-model', name: 'local-ds-v4', inputModalities: ['text'] }],
+        vision: [{ provider: 'vision', id: 'general-model', name: 'local-vision', inputModalities: ['text', 'image'] }],
+        'omnifile-vllm': [{ provider: 'omnifile-vllm', id: 'general-model', name: 'local-ds-v4 (Omnifile)', inputModalities: ['text', 'image'] }],
+      },
+    },
+  });
+  const list = await enumerateModels(ctx);
+  const ids = list.map((m) => m.ref);
+  const byRef = Object.fromEntries(list.map((m) => [m.ref, m]));
+
+  /* DSH 内置 DeepSeek 模型必须出现 */
+  assert.ok(ids.includes('llm-deepseek/deepseek-official/deepseek-v4-flash'), 'DeepSeek v4-flash 出现');
+  assert.ok(ids.includes('llm-deepseek/deepseek-official/deepseek-v4-pro'), 'DeepSeek v4-pro 出现');
+  assert.ok(ids.includes('llm-deepseek/deepseek-official/deepseek-v4-flash-vision-exp'), 'DeepSeek v4-flash-vision-exp 出现');
+  assert.equal(byRef['llm-deepseek/deepseek-official/deepseek-v4-flash'].image, false, 'DeepSeek 纯文本 → image=false');
+  assert.equal(byRef['llm-deepseek/deepseek-official/deepseek-v4-flash'].providerDisplay, 'DeepSeek', 'DeepSeek 显示名');
+  /* 用户在设置里显式声明的视觉模型（adapter 报 text-only）→ 按名称/ID 视觉关键字推断为 image=true */
+  assert.equal(byRef['llm-deepseek/deepseek-official/deepseek-v4-flash-vision-exp'].image, true, 'deepseek-v4-flash-vision-exp 推断为视觉模型');
+
+  /* 自定义 pi-ai 的 vllm（文本）与 vision（图片）都出现 */
+  assert.ok(ids.includes('llm-pi-ai/vllm/general-model'), 'pi-ai vllm 出现');
+  assert.ok(ids.includes('llm-pi-ai/vision/general-model'), 'pi-ai vision 出现');
+  assert.equal(byRef['llm-pi-ai/vllm/general-model'].image, false, 'vllm 纯文本 → image=false');
+  assert.equal(byRef['llm-pi-ai/vision/general-model'].image, true, 'vision 支持图片 → image=true');
+  assert.equal(byRef['llm-pi-ai/vision/general-model'].baseURL, 'http://b/v1', 'baseURL 从 profile 关联');
+
+  /* 本插件 omnifile-* 变体必须被跳过 */
+  assert.ok(!ids.some((ref) => ref.includes('/omnifile-')), 'omnifile-* 变体不出现');
+});
+
+test('模型枚举：adapter 未公布时回退 settings profile 显式模型；provider 目录为空时不崩溃', async () => {
+  const { enumerateModels } = loadModelUtils();
+  /* 只有 settings profile 显式声明模型、adapter 目录不可用（llm 服务缺失） */
+  const ctxNoLlm = {
+    settings: { get: (ns) => (ns === 'llm-pi-ai' ? { providers: { vision: { displayName: 'v', baseURL: 'http://x', defaultInput: ['text', 'image'], models: [{ id: 'm1', name: 'M1' }] } } } : undefined) },
+    get: () => undefined,
+  };
+  const list1 = await enumerateModels(ctxNoLlm);
+  assert.equal(list1.length, 0, 'llm 服务缺失时返回空（不崩溃）');
+
+  /* adapter 有目录但某个 provider 的 listModels 抛错 → 回退 profile 显式模型 */
+  const ctx = makeModelCtx({
+    settings: {
+      'llm-pi-ai': { providers: { vision: { displayName: 'v', baseURL: 'http://x', defaultInput: ['text', 'image'], models: [{ id: 'm1', name: 'M1' }] } } },
+    },
+    llm: {
+      directory: [{ provider: 'vision', displayName: 'v', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'vision'] }],
+      providers: [],
+      providerModels: {},
+    },
+  });
+  /* 让 listProviders 返回空，但 settings profile 里有显式模型（profile 回退仍应列出、去重） */
+  const list2 = await enumerateModels(ctx);
+  assert.ok(list2.some((m) => m.ref === 'llm-pi-ai/vision/m1'), 'profile 显式模型被枚举');
+  assert.equal(list2.find((m) => m.ref === 'llm-pi-ai/vision/m1').image, true, 'profile 模型 image 标注来自 defaultInput');
+});
+
+test('providerRef 解析：DSH 内置 DeepSeek 无 settings profile 时回退默认端点/凭据；自定义 provider 正常解析', async () => {
+  const { resolveConfiguredProvider } = loadModelUtils();
+  /* 内置 DeepSeek：settings 无 llm-deepseek 小节 → 回退官方默认 */
+  const ctxDeep = makeModelCtx({
+    settings: {},
+    llm: { directory: [{ provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] }] },
+  });
+  const r1 = await resolveConfiguredProvider(ctxDeep, 'llm-deepseek/deepseek-official/deepseek-v4-flash');
+  assert.ok(r1, '内置 provider 可解析');
+  assert.equal(r1.baseUrl, 'https://api.deepseek.com', '默认端点');
+  assert.equal(r1.credential, 'DEEPSEEK_API_KEY', '默认凭据引用');
+  assert.equal(r1.model, 'deepseek-v4-flash', '模型透传');
+
+  /* 内置 DeepSeek：settings 显式配置 baseURL → 优先用配置 */
+  const ctxDeep2 = makeModelCtx({
+    settings: { 'llm-deepseek': { baseURL: 'http://gw/deepseek', apiKeyEnv: 'MY_KEY' } },
+    llm: { directory: [{ provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] }] },
+  });
+  const r2 = await resolveConfiguredProvider(ctxDeep2, 'llm-deepseek/deepseek-official/deepseek-v4-pro');
+  assert.ok(r2);
+  assert.equal(r2.baseUrl, 'http://gw/deepseek', '优先 settings baseURL');
+  assert.equal(r2.credential, 'MY_KEY', '优先 settings apiKeyEnv');
+
+  /* 自定义 pi-ai vision：从 providers.vision profile 解析 */
+  const ctxPi = makeModelCtx({
+    settings: { 'llm-pi-ai': { providers: { vision: { displayName: 'v', baseURL: 'http://b/v1', apiKeyEnv: 'VISION_API_KEY' } } } },
+    llm: { directory: [{ provider: 'vision', displayName: 'v', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'vision'] }] },
+  });
+  const r3 = await resolveConfiguredProvider(ctxPi, 'llm-pi-ai/vision/general-model');
+  assert.ok(r3);
+  assert.equal(r3.baseUrl, 'http://b/v1', 'pi-ai baseURL');
+  assert.equal(r3.credential, 'VISION_API_KEY', 'pi-ai apiKeyEnv');
+  assert.equal(r3.model, 'general-model', 'pi-ai 模型透传');
+
+  /* 无效目录：无匹配 entry → null */
+  const r4 = await resolveConfiguredProvider(ctxPi, 'unknown/ns/model');
+  assert.equal(r4, null, '无法解析返回 null');
+});
+

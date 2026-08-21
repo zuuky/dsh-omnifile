@@ -34,3 +34,6 @@ vite.config.js
 
 *.log
 .codegraph
+
+# 插件运行期产物（会话工作区 uploads 目录）
+uploads

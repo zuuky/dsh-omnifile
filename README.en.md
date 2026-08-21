@@ -7,7 +7,7 @@
 ## Features
 
 - **File intake**: drag files onto the window, paste them into the composer (images/files), or use the **Upload** button; type `@` in the composer to open a file picker over the current session workspace (files only, noisy dirs skipped, type to filter).
-- **Document parsing** (@firecrawl/anydoc): supports `.doc/.docx/.docm .ppt/pptx/.pps/.pot/.pptm/.ppsx/.ppsm .xls/.xlsx/.xlsm/.xlsb .odt/.ods/.odp .rtf .epub .csv .pdf`; plain text (`.json/.txt/.md/.html/.shtml`) is read directly (UTF-8 with BOM preferred, GB18030/GBK fallback; JSON prettified, HTML stripped); image-only PDFs degrade gracefully instead of failing.
+- **Document parsing** (@firecrawl/anydoc): supports `.doc/.docx/.docm .ppt/pptx/.pps/.pot/.pptm/.ppsx/.ppsm .xls/.xlsx/.xlsm/.xlsb .odt/.ods/.odp .rtf .epub .csv .pdf`; plain text (`.json/.txt/.md/.html/.shtml`) is read directly (UTF-8 with BOM preferred, UTF-16 LE/BE (with or without BOM), UTF-32 LE/BE, and GB18030/GBK fallbacks — text is never misdetected as binary; JSON prettified, HTML stripped); image-only PDFs degrade gracefully instead of failing.
 - **Multimodal image recognition**: images, document-embedded images, and scanned PDFs are turned into text descriptions by your configured multimodal model; identical images are cached by (content hash + prompt + endpoint) to avoid repeated calls.
 - **Send to model**: files start parsing in the background as soon as they are added (`/api/omnifile/process`); on send, the message waits for any still-parsing files and only then dispatches — with live parse progress shown at the bottom of the conversation.
 - **Chat file card**: one row per file sits above each user message (icon + filename); click to expand/collapse the converted `{source-name}.md` content; the 📂 button opens the original file with your local default application.
@@ -60,11 +60,11 @@ omnifile:
   maxTokens: 8192             # max output tokens per call
 ```
 
-The multimodal model is **picked only from Settings → Models** (single source of truth): choose an image-capable provider/model in the "DshOmniFile" settings panel; it stores a single `providerRef` reference, not multiple model configs.
+The multimodal model is **picked from Settings → Models** (single source of truth): the "DshOmniFile" dropdown now **lists every provider/model currently registered in DSH** — including the built-in official DeepSeek `deepseek-v4-*` and your custom providers (e.g. pi-ai) — each annotated with image capability (🖼 image input / 📝 text-only). It stores a single `providerRef` reference, not multiple model configs; choosing a text-only model for recognition will fail, prefer 🖼-annotated models.
 
 ## Notes
 
-- You must first **configure an image-capable model in Settings → Models**; otherwise image / document-image recognition will error.
+- You must first **configure an image-capable model in Settings → Models** (🖼-annotated in the dropdown); otherwise image / document-image recognition will error (the built-in DSH DeepSeek is text-only).
 - **Thinking mode** is sent explicitly by the plugin: off → `reasoning_effort: "none"` + `enable_thinking=false`; on → the configured `reasoningEffort`. Some endpoints ignore unknown fields; fall back server-side if needed.
 - Recognition is **content-hash cached**: same image + same prompt + same endpoint calls the multimodal model only once.
 - While waiting to send, **repeated clicks are ignored** (notice "please don't click repeatedly", auto-cleared after submit); **removing a file does not affect the send** — its marker is dropped.
