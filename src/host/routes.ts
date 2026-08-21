@@ -49,7 +49,7 @@ function registerRoutes(ctx: any, getConfig: () => Record<string, any>): void {
         path: '/api/omnifile/common.js',
         handler: async (req: any, res: any) => {
             try {
-                const commonPath = fileURLToPath(new URL('./common.js', import.meta.url))
+                const commonPath = fileURLToPath(new URL(/* @vite-ignore */ './common.js', import.meta.url))
                 const data = await fs.readFile(commonPath)
                 res.writeHead(200, {
                     'content-type': 'application/javascript; charset=utf-8',
