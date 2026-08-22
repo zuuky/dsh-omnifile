@@ -13,6 +13,7 @@
 - **Chat file card**: one row per file sits above each user message (icon + filename); click to expand/collapse the converted `{source-name}.md` content; the 📂 button opens the original file with your local default application.
 - **Text-only model enhancement**: omnifile-* variant providers rewrite image blocks into text descriptions at send time, using **your current question** as recognition context (multimodal main models view the image directly and skip this).
 - **omnifile tool**: the main model can parse local files on demand.
+- **In-conversation message navigation**: as soon as user messages exist, a slim nav strip appears at the right edge of the chat flow — one anchor dot per user message, click to scroll straight to it (easy to get back to each prompt inside a long AI reply); hovering a dot previews that user message's content (truncated to 100 chars); it caps the list to 10 dots at a time, with ▲/▼ "show more" buttons at either end to reach older/newer messages; hidden when there are no user messages; low z-index with pointer events that pass through by default, so it never covers modals or pages (replaces the standalone `@vlln/dsh-navbar` plugin).
 
 ## Usage
 

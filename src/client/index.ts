@@ -10,6 +10,7 @@ import { NAMESPACE, SOURCE } from '../common/index.js'
 import { installStyles } from './styles.js'
 import { OmnifileController, common } from './controller.js'
 import { installPasteAndDrag, installMarkerHiding } from './dom.js'
+import { installConversationNav } from './nav.js'
 import { registerCodec } from './source.js'
 import { omnifileChatDefinition } from './chat.js'
 import { OmnifileDock, UploadButton, OmnifileFilesCard } from './components.js'
@@ -22,6 +23,8 @@ export function apply(ctx: any): void {
     registerCodec(ctx, controller)
     /* 隐藏用户消息气泡里的 marker（保留在 content 供模型工具识别）。 */
     installMarkerHiding(ctx)
+    /* 会话内「用户消息」快速定位导航：≥2 条用户消息才显示，点击锚点圆点定位。 */
+    installConversationNav(ctx)
 
     ctx.slots.inject('conversation.input.dock', function () {
         return ctx.slots.register({
