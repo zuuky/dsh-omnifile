@@ -1,4 +1,4 @@
-import { Config } from './config.js';
+import { Config } from '../core/host/config.js';
 export declare const name = "dsh-omnifile";
 export declare const inject: string[];
 export { Config };

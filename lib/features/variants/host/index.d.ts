@@ -1,0 +1,34 @@
+/**
+ * 文本-only 主模型的 omnifile-* 图像变体：发送时把 image 块改写为多模态模型生成的文字描述。
+ */
+import { LlmAdapter } from '@deepseek-ai/dsh-llm';
+import { createLimiter } from '../../../core/host/limiter.js';
+declare function shouldWrapModel(info: any): boolean;
+/** 取消息列表里最新的用户文本问题（供识图提示词上下文使用）。 */
+declare function lastUserQuestion(messages: any[] | undefined): string;
+declare class OmnifileVariantAdapter extends LlmAdapter {
+    private ctx;
+    private llm;
+    private upstream;
+    private upstreamName;
+    private getConfig;
+    constructor(ctx: any, llm: any, upstream: string, upstreamName: string, getConfig: () => Record<string, any>);
+    providerInfo(provider: string): {
+        id: string;
+        name: string;
+    };
+    listModels(provider: string, signal?: AbortSignal): Promise<any[]>;
+    resolveModel(provider: string, model: string, signal?: AbortSignal): Promise<any>;
+    stream(options: any): AsyncGenerator<any>;
+    /** DSH dsh-llm >= 0.1.0-rc.8 要求每个注册的 adapter 先冻结一次调用（agent-loop 每轮必经）。
+     *  返回与 stream 语义一致的绑定条目：model 交给 LlmRuntime 校验/解析，stream 复用本类实现。 */
+    prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<any>;
+    rewriteMessages(cfg: Record<string, any>, messages: any[], signal: AbortSignal | undefined, sessionId: string | undefined): Promise<any[]>;
+    convertBlocks(cfg: Record<string, any>, blocks: any[], limit: ReturnType<typeof createLimiter>, signal: AbortSignal | undefined, sessionId: string | undefined, question: string): Promise<any[]>;
+    materializeAsEvidence(block: any, attachmentService: any, cwd: string | undefined): Promise<{
+        path: string;
+    }>;
+}
+/** 安装文本模型变体（监听 llm/adapters-updated 保持与当前 provider 目录同步）。 */
+declare function installVariants(ctx: any, getConfig: () => Record<string, any>): () => void;
+export { shouldWrapModel, lastUserQuestion, OmnifileVariantAdapter, installVariants };

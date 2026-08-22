@@ -1,23 +1,23 @@
 /**
- * dsh-omnifile — 文件适配插件（Host 端入口）
+ * dsh-omnifile — 文件适配插件（Host 端组合根）
  *
- * 路由：/api/omnifile/{save,process,status,open,parsed,models,list,config} + common.js
- * 能力：文件接入/解析（anydoc＋纯文本）、多模态识图（内容哈希缓存）、
- *      文本-only 主模型的 omnifile-* 图像变体、omnifile 工具、@ 文件列表。
+ * 组合根职责：装配共享层（core）与各功能块（features/），按 DSH 插件协议
+ * 注册设置、路由、工具与模型变体。各功能块自行注册自己的 /api 路由。
  *
- * 解析结果统一落盘为 <uploads>/<源文件名>.md，消息里只放一行「解析后保存路径」引用，
- * 大模型按该绝对路径用内置 read 工具读取内容。
- *
- * 构建：本文件由 Vite 编译为 lib/index.js（Node ESM，common 内联；lib/common.js 仍单独
- * 构建供 /api/omnifile/common.js 向后兼容旧客户端 bundle）。
+ * 构建：本文件由 Vite 编译为 lib/index.js（Node ESM，core 内联；lib/common.js
+ * 仍单独构建供 /api/omnifile/common.js 向后兼容旧客户端 bundle）。
  */
-import { NAMESPACE } from '../common/index.js'
-import { Config, syncRunLimits } from './config.js'
-import { messageOf } from '../common/index.js'
-import { LOG_PREFIX } from './logger.js'
-import { registerRoutes } from './routes.js'
-import { registerTool } from './tool.js'
-import { installVariants } from './variants.js'
+import { NAMESPACE, messageOf } from '../core/index.js'
+import { Config, syncRunLimits } from '../core/host/config.js'
+import { LOG_PREFIX } from '../core/host/logger.js'
+import { registerFileIntake } from '../features/file-intake/host/index.js'
+import { registerFileParsing } from '../features/file-parsing/host/index.js'
+import { registerVision } from '../features/vision/host/index.js'
+import { installVariants } from '../features/variants/host/index.js'
+import { registerTool } from '../features/omnifile-tool/host/index.js'
+import { registerChatCard } from '../features/chat-card/host/index.js'
+import { registerSettings } from '../features/settings/host/index.js'
+import { registerCommonJsRoute } from './serve-common.js'
 
 export const name = 'dsh-omnifile'
 export const inject = ['webServer', 'sessions', 'tools', 'settings', 'credentials', 'llm']
@@ -56,8 +56,14 @@ export function apply(ctx: any, config: Record<string, any> = {}): () => void {
         ctx.logger?.warn?.(LOG_PREFIX + ' variants skipped: ' + messageOf(error))
     }
 
-    registerRoutes(ctx, getConfig)
+    /* 通用基础设施 + 各功能块的路由/工具注册。 */
+    registerCommonJsRoute(ctx)
+    registerFileIntake(ctx, getConfig)
+    registerFileParsing(ctx, getConfig)
+    registerVision(ctx, getConfig)
     registerTool(ctx, getConfig)
+    registerChatCard(ctx, getConfig)
+    registerSettings(ctx, getConfig)
 
     return () => {
         disposeVariants()

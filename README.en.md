@@ -73,6 +73,87 @@ The multimodal model is **picked from Settings → Models** (single source of tr
 - The message body carries only a one-line "parsed path" readable reference (for the model's read tool and client card lookup); the full content is saved to `{source-name}.md` and hidden from the bubble UI.
 - Nothing is uploaded to third-party clouds; multimodal calls target your configured local/intranet endpoint.
 
+## Development (TypeScript + Vite)
+
+Source lives in `src/` (TypeScript), organized **by feature** (no longer by runtime layer `client/common/host`). Vite builds three targets into `lib/` (existing `main`/`exports`/deploy paths unchanged):
+
+```text
+src/core/                           Project-wide shared layer (infrastructure with no feature owner)
+  constants.ts  markers.ts  util.ts  dual-end constants / message markers / pure helpers (barrel → lib/common.js)
+  host/                             host-side shared: config.ts (settings schema & limits), logger.ts,
+                                    paths.ts (paths & parsed-md persistence), http.ts (request/response/credentials),
+                                    progress.ts, limiter.ts, extensions.ts (file classification)
+  client/                           client-side shared: styles.ts (style injector), util.ts (helpers)
+src/host/                           Host composition root (apply entry wiring every feature's register fn)
+  index.ts  serve-common.ts (/api/omnifile/common.js backward-compat route)
+src/client/                         Client composition root (apply entry wiring every feature's install fn)
+  index.ts
+src/features/                       One folder per plugin feature
+  file-intake/     file intake: drag & drop / paste / upload button / @ file picker
+                   (host: /save /list routes; client: controller/dom/source/components)
+  file-parsing/    file parsing: anydoc documents + plain-text decoding
+                   (host: /process /status routes + anydoc/text)
+  vision/          multimodal recognition: model enumeration / provider resolution / content-hash cache
+                   (host: /models route + models/describe)
+  variants/        text-only main-model enhancement: omnifile-* image variants adapter (host-only)
+  omnifile-tool/   the dshomnifile tool (host-only)
+  chat-card/       chat file cards: parse card / 📂 open source / marker hiding
+                   (host: /parsed /open routes; client: chat/parse/components/dom)
+  navigation/      in-conversation user-message quick navigation (client-only)
+  settings/        settings panel (host: /config route; client: settings component)
+```
+
+Conventions (details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)):
+
+- **One folder per feature** (`features/<name>/`); inside a feature, split into `host/` and `client/`
+  subfolders by runtime (the Node host bundle and the browser bundle build separately and never import each other).
+- Each feature exposes `register*(ctx, getConfig)` from `host/index.ts` and `install*(ctx, deps)` + `css`
+  from `client/index.ts`; the composition roots (`src/host`/`src/client`/`index.ts`) are the single wiring
+  point (dependency injection: create the controller, inject `getConfig`, call each feature's register/install).
+- **Config applies live**: every route handler must call `getConfig()` per request — never snapshot at registration.
+- Shared tools/constants/behaviors/conventions/config live under `src/core/` (dual-end elements are the single
+  source of truth; host-only shared goes to `core/host/`, client-only to `core/client/`); cross-feature imports
+  on the host side are allowed only in the documented capability direction:
+  `vision → file-parsing → omnifile-tool / variants` — no reverse or cyclic dependencies.
+- Client styles are co-located per feature (`client/styles.ts` exporting `css`), injected as a separate
+  `<style>` tag via `installStyles` in `core/client/styles.ts`.
+
+Build still produces three targets (artifact paths and `package.json` main/exports unchanged):
+
+```text
+src/core/index.ts      → lib/common.js   (dual-end elements; served at /api/omnifile/common.js for old client bundles)
+src/host/index.ts      → lib/index.js    (host Node ESM, core inlined)
+src/client/index.ts    → lib/client.js   (client ModuleLoader bundle, core inlined, react externalized)
+```
+
+Depends on vite + typescript (devDependencies).
+
+```bash
+pnpm install       # install dependencies (incl. build toolchain)
+pnpm build         # build all three targets → lib/
+pnpm build:watch   # watch src and rebuild incrementally (three vite processes in parallel)
+pnpm typecheck     # tsc --noEmit type check
+pnpm test          # regression tests (node --test against lib/ build output)
+```
+
+- The client bundle is produced by `scripts/build.mjs` + `vite.client.config.mts`; a custom Vite plugin's
+  `generateBundle` hook wraps it into DSH's `window.__ModuleLoader__.load({ id, factory })` format.
+- `core` is inlined into the host/client bundles at build time (single TS source shared by both ends); the
+  `/api/omnifile/common.js` route is kept for backward compatibility with older client bundles.
+- Declarations `lib/host/*.d.ts` and `lib/core/*.d.ts` are emitted by `tsconfig.build.json`
+  (`package.json` `types`/`exports` point to `lib/host/index.d.ts`).
+- Regression tests are organized per feature under `test/` (shared harness in `test/helpers.mjs`):
+
+```text
+core.test.mjs        shared: marker assembly/parsing, file-kind classification
+file-intake.test.mjs intake: dock chip/sendwait rendering, send-wait/dup-guard/removal decoupling, chip pinning
+file-parsing.test.mjs parsing: multi-encoding decode & binary detection (UTF-8/GBK/UTF-16 incl. no BOM/UTF-32)
+vision.test.mjs      vision: model enumeration (image flag/variant skip/profile fallback), providerRef resolution
+variants.test.mjs    variants: lastUserQuestion, describe-prompt composition
+chat-card.test.mjs   chat card: CSS assertions, ParseBlock render/lazy expansion
+navigation.test.mjs  navigation: show/position/windowing/hover preview/event pass-through
+```
+
 ## License
 
 MIT

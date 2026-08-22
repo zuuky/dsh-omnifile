@@ -9,7 +9,7 @@ export default defineConfig({
         target: 'es2022',
         outDir: 'lib',
         lib: {
-            entry: root + '/src/common/index.ts',
+            entry: root + '/src/core/index.ts',
             formats: ['es'],
             fileName: () => 'common.js',
         },

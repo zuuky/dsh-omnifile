@@ -76,21 +76,49 @@ omnifile:
 
 ## 开发（TypeScript + Vite）
 
-源码在 src/（TypeScript），按功能模块化组织，由 Vite 构建三个目标到 lib/（保持既有 main/exports/部署路径不变）：
+源码在 src/（TypeScript），**按功能块组织**（不再按运行时分 client/common/host 组织），由 Vite 构建三个目标到 lib/（保持既有 main/exports/部署路径不变）：
 
 ```text
-src/common/ → lib/common.js   （双端共用常量/标记/工具，ESM 零依赖；宿主 /api/omnifile/common.js 路由原样返回）
-  constants.ts  markers.ts  util.ts  index.ts(barrel)
-src/host/   → lib/index.js    （宿主端，Node ESM，所有外部依赖外部化，common 内联）
-  index.ts(入口/apply)  config.ts(设置schema与限额)  extensions.ts(文件分类)
-  logger.ts  paths.ts(路径/工作目录)  http.ts(请求/响应/凭据)  limiter.ts  progress.ts
-  text.ts(编码/二进制检测/纯文本)  models.ts(模型枚举/解析)  describe.ts(多模态识图+缓存)
-  anydoc.ts(文档解析+PDF兜底)  variants.ts(文本模型变体)  workspace.ts(@文件列表)
-  routes.ts(全部 /api 路由)  tool.ts(dshomnifile 工具)
-src/client/ → lib/client.js   （客户端，DSH ModuleLoader 单文件 bundle：react / dsh-client-runtime 外部化）
-  index.ts(apply入口)  styles.ts(CSS)  constants.ts(文案/限额)  util.ts(通用工具)
-  parse.ts(消息标记解析)  controller.ts(核心控制器)  components.ts(React 组件)
-  chat.ts(聊天卡片定义)  dom.ts(拖拽/粘贴/marker隐藏)  source.ts(@文件源注册)
+src/core/                           全项目共享层（无功能归属的基础设施）
+  constants.ts  markers.ts  util.ts  双端共用常量/消息标记/纯函数（index.ts barrel → lib/common.js）
+  host/                             宿主侧共享：config.ts(设置schema/限额)  logger.ts  paths.ts(路径/落盘)
+                                     http.ts(请求/响应/凭据)  progress.ts  limiter.ts  extensions.ts(文件分类)
+  client/                           客户端共享：styles.ts(样式注入器)  util.ts(通用工具)
+src/host/                           宿主组合根（apply 入口，装配各功能块的注册函数）
+  index.ts  serve-common.ts(/api/omnifile/common.js 向后兼容路由)
+src/client/                         客户端组合根（apply 入口，装配各功能块的客户端安装函数）
+  index.ts
+src/features/                       按插件功能划分的功能块（一个功能一个文件夹）
+  file-intake/     文件接入：拖拽/粘贴/上传按钮/@ 文件选择器（host: /save /list 路由；client: controller/dom/source/components）
+  file-parsing/    文件解析：anydoc 文档 + 纯文本解码（host: /process /status 路由 + anydoc/text）
+  vision/          多模态识图：模型枚举/provider 解析/内容哈希缓存（host: /models 路由 + models/describe）
+  variants/        文本-only 主模型增强：omnifile-* 图像变体 adapter（host: 变体注册）
+  omnifile-tool/   dshomnifile 工具（host: 工具注册）
+  chat-card/       聊天内文件卡片：解析卡片/📂 打开源文件/marker 隐藏（host: /parsed /open 路由；client: chat/parse/components/dom）
+  navigation/      会话内用户消息快速定位导航（client: nav）
+  settings/        设置面板（host: /config 路由；client: 设置组件）
+```
+
+约定（详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)）：
+
+- **一个功能块一个文件夹**（`features/<name>/`），功能块内按运行端再分 `host/` 与 `client/`
+  两个子目录（宿主 Node ESM 与浏览器 bundle 各自构建，互不导入）。
+- 每个功能块通过 `host/index.ts` 导出 `register*(ctx, getConfig)`、客户端通过
+  `client/index.ts` 导出 `install*(ctx, deps)` + `css`；组合根（src/host|[client]/index.ts）
+  是唯一的装配点（依赖注入：创建控制器、注入 getConfig、调用各功能块注册/安装函数）。
+- **配置是 live 生效的**：所有路由 handler 内部都要重新调用 `getConfig()`，禁止注册期快照。
+- 跨功能共用的工具/常量/行为/约定/配置一律下沉到 `src/core/`（双端共用元素是唯一来源，
+  宿主侧共享进 `core/host/`，客户端侧共享进 `core/client/`）；功能块之间只允许宿主侧按
+  「能力层」单向依赖：`vision → file-parsing → omnifile-tool / variants`，禁止反向与循环依赖。
+- 客户端样式按功能块自带（`client/styles.ts` 导出 `css`），由 `core/client/styles.ts` 的
+  `installStyles` 注入独立 `<style>` 标签。
+
+构建仍为三个目标（产物路径与 package.json main/exports 不变）：
+
+```text
+src/core/index.ts      → lib/common.js  （双端共用元素，/api/omnifile/common.js 向后兼容旧客户端）
+src/host/index.ts      → lib/index.js   （宿主端 Node ESM，core 内联）
+src/client/index.ts    → lib/client.js  （客户端 ModuleLoader bundle，core 内联，react 外部化）
 ```
 
 依赖 vite + typescript（devDependencies）。
@@ -105,13 +133,21 @@ pnpm test          # 回归测试（node --test，读取 lib/ 构建产物）
 
 - 客户端 bundle 由 scripts/build.mjs + vite.client.config.mts 产出，构建时通过自定义
   Vite 插件的 generateBundle hook 包进 DSH 的 window.__ModuleLoader__.load({ id, factory }) 格式；
-- common 构建期内联进宿主/客户端 bundle（与两端同一份 TS 源码，单源）；/api/omnifile/common.js
+- core 构建期内联进宿主/客户端 bundle（与两端同一份 TS 源码，单源）；/api/omnifile/common.js
   路由保留用于向后兼容旧客户端 bundle。
-- 构建同时生成 lib/host/*.d.ts 与 lib/common/*.d.ts（tsconfig.build.json 声明输出，
+- 构建同时生成 lib/host/*.d.ts 与 lib/core/*.d.ts（tsconfig.build.json 声明输出，
   package.json types/exports 指向 lib/host/index.d.ts）。
-- 回归测试覆盖：CSS 断言、lastUserQuestion、chips 渲染/发送流程、模型枚举，以及二进制检测
-  （UTF-8/GBK/UTF-16（含无 BOM）/UTF-32 中文与英文文本不误判、真实二进制不放过）
-  与文件 chip 置顶插入（无论输入框有无文字，chip 始终在正文之前）。
+- 回归测试按功能块组织在 test/（共享工具在 test/helpers.mjs），覆盖：
+
+```text
+core.test.mjs        共享层：markers 组装/解析、extensions 文件类别判定
+file-intake.test.mjs 文件接入：dock chip/sendwait 渲染、发送等待/防重复/移除解耦、chip 置顶
+file-parsing.test.mjs 文件解析：多编码解码与二进制检测（UTF-8/GBK/UTF-16 含无 BOM/UTF-32）
+vision.test.mjs      多模态：模型枚举（含 image 标注/变体跳过/profile 回退）、providerRef 解析
+variants.test.mjs    变体：lastUserQuestion、识图提示词拼接
+chat-card.test.mjs   聊天卡片：CSS 断言、ParseBlock 渲染/展开懒加载
+navigation.test.mjs  消息导航：显示/定位/窗口化/hover 预览/事件穿透
+```
 
 ## 许可
 
