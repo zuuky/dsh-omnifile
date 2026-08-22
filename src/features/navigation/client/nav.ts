@@ -238,21 +238,47 @@ function installConversationNav(ctx: any): void {
         if (currentScroller !== null) currentScroller.addEventListener('scroll', onScroll)
     }
     const onScroll = () => schedule()
+
+    /* flow 容器可能随会话/布局切换而替换；body 尺寸在侧栏折叠/面板开合时常不变，
+     * 因此把 ResizeObserver 动态绑到当前 flow 上，聊天区宽度一变（窗口缩放/侧栏折叠/
+     * 面板开合/分栏拖动）导航就自动贴回新右缘。 */
+    let currentFlow: Element | null = null
+    let flowObserver: ResizeObserver | null = null
+    const bindFlow = () => {
+        const next = flowOf()
+        if (next === currentFlow) return
+        if (flowObserver !== null) {
+            flowObserver.disconnect()
+            flowObserver = null
+        }
+        currentFlow = next
+        if (currentFlow !== null) {
+            flowObserver = new ResizeObserver(() => requestPosition())
+            flowObserver.observe(currentFlow)
+        }
+    }
     const observer = new MutationObserver(() => {
         bindScroller()
+        bindFlow()
         schedule()
     })
 
     ctx.effect(() => {
         observer.observe(document.body, { childList: true, subtree: true })
+        /* body 尺寸兜底 + flow 尺寸（聊天区宽度/布局变化）双路监听。 */
         const sizeObserver = new ResizeObserver(() => requestPosition())
         sizeObserver.observe(document.body)
         window.addEventListener('resize', requestPosition)
         bindScroller()
+        bindFlow()
         render()
         return () => {
             observer.disconnect()
             sizeObserver.disconnect()
+            if (flowObserver !== null) {
+                flowObserver.disconnect()
+                flowObserver = null
+            }
             window.removeEventListener('resize', requestPosition)
             if (currentScroller !== null) currentScroller.removeEventListener('scroll', onScroll)
             strip.remove()

@@ -141,6 +141,14 @@ function bootNav(userCount) {
 
     const observers = []
     const MutationObserverStub = class { constructor(cb) { this.cb = cb; observers.push(this) } observe() { this.observed = true } disconnect() {} trigger(muts) { this.cb(muts || [], this) } }
+    /* ResizeObserver 桩：记录每次 observe 的目标（元素、回调），供测试手动触发“尺寸变化”。 */
+    const resizeObservers = []
+    const ResizeObserverStub = class {
+        constructor(cb) { this.cb = cb; this.targets = new Set(); resizeObservers.push(this) }
+        observe(el) { this.targets.add(el) }
+        disconnect() { this.targets.clear() }
+        trigger() { this.cb() }
+    }
     const sandbox = {
         HTMLElement: HTMLElementStub,
         document: doc,
@@ -152,7 +160,7 @@ function bootNav(userCount) {
         setTimeout, clearTimeout,
         getComputedStyle: (el) => ({ overflowY: el._overflowY }),
         WheelEvent: class { constructor(type, init) { this.type = type; this.deltaY = (init && init.deltaY) || 0; this.bubbles = !!(init && init.bubbles); this.cancelable = !!(init && init.cancelable) } },
-        ResizeObserver: class { constructor() {} observe() {} disconnect() {} },
+        ResizeObserver: ResizeObserverStub,
         MutationObserver: MutationObserverStub,
         fetch: () => Promise.resolve({ json: async () => ({ ok: false }) }),
         addEventListener() {}, removeEventListener() {},
@@ -200,6 +208,9 @@ function bootNav(userCount) {
         more: (dir) => queryAll(byAttr('data-omnifile-nav'), '[data-omnifile-nav-more]', true).find((el) => el.getAttribute('data-dir') === dir) || null,
         tip: () => byAttr('data-omnifile-nav-tip'),
         observer: () => observers.find((o) => o.observed === true) || observers[0],
+        observers: () => observers,
+        resizeObservers: () => resizeObservers,
+        flowResize: () => resizeObservers.find((o) => o.targets.has(session.flow)) ?? null,
         flush: () => new Promise((r) => setTimeout(r, 15)),
         noticeValue,
     }
@@ -338,4 +349,58 @@ test('nav 行为：命中带/导航 hover 切换 active', async () => {
     assert.ok(bar.classList.contains('active'), '直接 hover 导航 → 激活')
     b.bar().dispatchEvent({ type: 'mouseleave' })
     assert.ok(!bar.classList.contains('active'), '离开导航 → 还原')
+})
+
+/* ============ 7. 尺寸自适应：聊天区/页面变化 → 导航自动重新贴右缘 ============ */
+test('nav 自适应：flow 宽度变化（侧栏折叠/面板开合）→ ResizeObserver 触发重新定位', async () => {
+    const b = bootNav(2)
+    const bar = b.bar()
+    const strip = b.strip()
+    await b.flush()
+    /* 初始：flow._rect.right=760 → bar left = 760+20 = 780, strip left = 780-20 = 760 */
+    assert.equal(bar.style.left, '780px', '初始贴 flow 右缘')
+    assert.equal(strip.style.left, '760px', 'strip 跟随')
+
+    /* 模拟聊天区收窄（如侧栏展开/分栏拖动）：flow 右缘移到 500 */
+    b.session.flow._rect.right = 500
+    const flowResize = b.flowResize()
+    assert.ok(flowResize, 'flow 已被 ResizeObserver 观察')
+    flowResize.trigger()
+    await b.flush()
+    assert.equal(bar.style.left, '520px', '收窄后重新贴新右缘 (500+20)')
+    assert.equal(strip.style.left, '500px', 'strip 跟随新右缘')
+
+    /* 再放宽：flow 右缘回到 900 */
+    b.session.flow._rect.right = 900
+    b.flowResize().trigger()
+    await b.flush()
+    assert.equal(bar.style.left, '920px', '放宽后重新贴新右缘 (900+20)')
+})
+
+test('nav 自适应：会话切换（flow 被替换）→ 重新观察新 flow 并定位', async () => {
+    const b = bootNav(2)
+    const flowA = b.session.flow
+    await b.flush()
+    assert.ok(b.resizeObservers().some((o) => o.targets.has(flowA)), '旧 flow 被观察')
+
+    /* 切换会话：用新的 flow 替换旧 flow，触发 MutationObserver → bindFlow（触发全部 observer，nav 的在其内） */
+    const flowB = new HTMLElementStub('div')
+    flowB.setAttribute('data-chat-flow', '')
+    flowB._rect = { top: 0, left: 0, right: 300, bottom: 560, width: 300, height: 560 }
+    const scroller = flowA.parentNode
+    flowA.remove()
+    scroller.appendChild(flowB)
+    b.session.flow = flowB
+    b.observers().forEach((o) => o.trigger())
+    await b.flush()
+
+    /* 新 flow 也被观察，且 bar 已贴到新 flow 右缘 */
+    assert.ok(b.resizeObservers().some((o) => o.targets.has(flowB)), '新 flow 被重新观察')
+    assert.equal(b.bar().style.left, '320px', '已贴到新 flow 右缘 (300+20)')
+
+    /* 新 flow 再变化也能跟随 */
+    flowB._rect.right = 200
+    b.resizeObservers().find((o) => o.targets.has(flowB)).trigger()
+    await b.flush()
+    assert.equal(b.bar().style.left, '220px', '新 flow 变化后继续跟随')
 })
