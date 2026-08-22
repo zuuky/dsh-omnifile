@@ -20,6 +20,9 @@ declare class OmnifileVariantAdapter extends LlmAdapter {
     listModels(provider: string, signal?: AbortSignal): Promise<any[]>;
     resolveModel(provider: string, model: string, signal?: AbortSignal): Promise<any>;
     stream(options: any): AsyncGenerator<any>;
+    /** DSH dsh-llm >= 0.1.0-rc.8 要求每个注册的 adapter 先冻结一次调用（agent-loop 每轮必经）。
+     *  返回与 stream 语义一致的绑定条目：model 交给 LlmRuntime 校验/解析，stream 复用本类实现。 */
+    prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<any>;
     rewriteMessages(cfg: Record<string, any>, messages: any[], signal: AbortSignal | undefined, sessionId: string | undefined): Promise<any[]>;
     convertBlocks(cfg: Record<string, any>, blocks: any[], limit: ReturnType<typeof createLimiter>, signal: AbortSignal | undefined, sessionId: string | undefined, question: string): Promise<any[]>;
     materializeAsEvidence(block: any, attachmentService: any, cwd: string | undefined): Promise<{
