@@ -1,7 +1,7 @@
 {
   "name": "dsh-omnifile",
   "version": "0.1.0",
-  "description": "DSH 文件适配插件：拖拽/粘贴/点击多选本地文件，anydoc 解析文档，多模态模型识别图片，整合给主模型。",
+  "description": "DSH 文件适配插件：拖拽/粘贴/点击多选/@ 选择本地文件，anydoc 解析文档、多模态模型识别图片（含内容哈希缓存），聊天内文件卡片与会话内消息导航，并为文本-only 主模型提供 omnifile-* 图像变体。",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/host/index.d.ts",
@@ -37,8 +37,15 @@
     "drag-drop",
     "paste",
     "anydoc",
+    "document-parsing",
+    "ocr",
     "multimodal",
     "vision",
+    "file-card",
+    "attachment",
+    "conversation",
+    "navigation",
+    "text-extraction",
     "web-ui"
   ],
   "license": "MIT",
@@ -65,10 +72,30 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-credentials": "0.0.1-rc.1",
-    "@deepseek-ai/dsh-llm": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7",
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/dsh-credentials": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
+    "react": "^18.3.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-ui-conversation": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-input-trigger": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@esbuild/win32-x64": "0.21.3",
